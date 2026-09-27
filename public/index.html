@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T&P Textiles</title>
+<script src="config.js"></script>
+<script type="module">
+  import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+  window.supabase = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+  window.dispatchEvent(new Event('supabase-ready'));
+</script>
+<style>
+:root{
+  --bg:#f7f5f2; --card:#ffffff; --ink:#1e1b16; --muted:#7a7268;
+  --accent:#a4472f; --line:#e6e0d8; --danger:#b33;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#171310; --card:#221d18; --ink:#f2ece3; --muted:#a99c8c; --accent:#e08a5f; --line:#3a322a; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+header{position:sticky;top:0;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--line);z-index:10;}
+.brand{font-weight:700;font-size:20px;color:var(--accent);}
+.brand small{display:block;font-weight:400;font-size:11px;color:var(--muted);}
+nav{display:flex;gap:8px;overflow-x:auto;margin-top:10px;}
+nav button{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:6px 12px;border-radius:20px;font-size:13px;cursor:pointer;}
+nav button.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+main{padding:16px;max-width:900px;margin:0 auto;}
+.cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-bottom:20px;}
+.cat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 8px;text-align:center;cursor:pointer;font-size:12px;}
+.cat b{display:block;font-size:22px;margin-bottom:4px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;}
+.pcard{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+.pcard img{width:100%;height:120px;object-fit:cover;background:var(--line);}
+.pcard .pc-body{padding:8px 10px;}
+.pcard .pname{font-size:13px;font-weight:600;margin:0 0 2px;}
+.pcard .pcat{font-size:11px;color:var(--muted);margin:0 0 6px;}
+.pcard .prow{display:flex;justify-content:space-between;align-items:center;}
+.pcard .price{font-weight:700;color:var(--accent);}
+.pcard button{border:none;background:var(--accent);color:#fff;border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px;}
+input,select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-size:14px;margin-bottom:10px;}
+label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px;}
+.btn{border:none;background:var(--accent);color:#fff;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer;width:100%;}
+.btn.secondary{background:transparent;color:var(--accent);border:1px solid var(--accent);}
+.cartrow{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;}
+.qty{display:flex;align-items:center;gap:6px;}
+.qty button{width:24px;height:24px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);cursor:pointer;}
+.msg{font-size:13px;padding:8px 10px;border-radius:8px;margin-bottom:10px;}
+.msg.ok{background:#dff3df;color:#1a5c1a;}
+.msg.err{background:#fbdede;color:#8a1c1c;}
+h2{font-size:17px;margin:0 0 12px;}
+.tiny{font-size:11px;color:var(--muted);}
+.plist-admin{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;gap:8px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">T&amp;P Textiles <small>Uniforms · Kids · Women's · Sports · Medical · Safety Wear</small></div>
+  <nav id="topnav"></nav>
+</header>
+<main id="app"><p class="tiny" style="padding:16px;">Loading…</p></main>
+
+<script>
+const CATS = [
+  {id:'uniforms', label:'School Uniforms', icon:'👕'},
+  {id:'kids', label:"Kids Wear", icon:'🧒'},
+  {id:'womens', label:"Women's Wear", icon:'👗'},
+  {id:'sports', label:'Sports Dress', icon:'🏃'},
+  {id:'doctor', label:"Doctor's Dress", icon:'🩺'},
+  {id:'nurse', label:'Nurse Dress', icon:'⚕️'},
+  {id:'safety', label:'Safety Dept Dress', icon:'🦺'},
+];
+let state = { view:'home', cat:null, cart: JSON.parse(localStorage.getItem('tp_cart')||'{}'),
+  session:null, isAdmin:false, products:[], msg:null };
+
+function saveCart(){ try{localStorage.setItem('tp_cart', JSON.stringify(state.cart));}catch(e){} }
+function cartCount(){ return Object.values(state.cart).reduce((a,b)=>a+b,0); }
+function catLabel(id){ const c=CATS.find(c=>c.id===id); return c? c.label : id; }
+function nav(view, cat){ state.view=view; state.cat=cat||null; state.msg=null; render(); window.scrollTo(0,0); }
+window.nav = nav;
+
+async function loadProducts(){
+  const { data, error } = await supabase.from('products').select('*').order('created_at',{ascending:false});
+  if(!error) state.products = data;
+}
+async function checkAdmin(){
+  if(!state.session){ state.isAdmin=false; return; }
+  const { data } = await supabase.from('admins').select('user_id').eq('user_id', state.session.user.id).maybeSingle();
+  state.isAdmin = !!data;
+}
+
+async function init(){
+  const { data:{ session } } = await supabase.auth.getSession();
+  state.session = session;
+  supabase.auth.onAuthStateChange((_e, session)=>{ state.session = session; checkAdmin().then(render); });
+  await loadProducts();
+  await checkAdmin();
+  render();
+}
+
+function renderTopNav(){
+  const el = document.getElementById('topnav');
+  const items = [
+    ['home','Home'], ['cart', `Cart (${cartCount()})`],
+    [state.session? 'account':'auth', state.session? 'Account' : 'Login/Signup'],
+    ['admin','Admin']
+  ];
+  el.innerHTML = items.map(([v,l])=>`<button class="${state.view===v?'active':''}" onclick="nav('${v}')">${l}</button>`).join('');
+}
+
+function productCard(p){
+  const img = p.image_url || ('https://placehold.co/300x240/e6e0d8/7a7268?text='+encodeURIComponent(p.category));
+  return `<div class="pcard">
+    <img src="${img}" alt="${p.name}" onerror="this.src='https://placehold.co/300x240/e6e0d8/7a7268?text=No+Image'">
+    <div class="pc-body">
+      <p class="pname">${p.name}</p>
+      <p class="pcat">${catLabel(p.category)} · ${p.stock>0? p.stock+' in stock':'Out of stock'}</p>
+      <div class="prow">
+        <span class="price">₹${Number(p.price).toFixed(0)}</span>
+        <button ${p.stock<=0?'disabled style="opacity:.5"':''} onclick="addToCart('${p.id}')">Add</button>
+      </div>
+    </div>
+  </div>`;
+}
+function addToCart(id){ state.cart[id]=(state.cart[id]||0)+1; saveCart(); state.msg={type:'ok',text:'Added to cart'}; render(); }
+function changeQty(id,d){ state.cart[id]=(state.cart[id]||0)+d; if(state.cart[id]<=0) delete state.cart[id]; saveCart(); render(); }
+window.addToCart = addToCart; window.changeQty = changeQty;
+
+function renderProductGrid(items){
+  if(!items.length) return `<p class="muted">No products here yet. Check back soon.</p>`;
+  return `<div class="grid">${items.map(productCard).join('')}</div>`;
+}
+function renderHome(){
+  return `<h2>Shop by Category</h2>
+  <div class="cats">${CATS.map(c=>`<div class="cat" onclick="nav('category','${c.id}')"><b>${c.icon}</b>${c.label}</div>`).join('')}</div>
+  <h2>All Products</h2>${renderProductGrid(state.products)}`;
+}
+function renderCategory(){
+  const items = state.products.filter(p=>p.category===state.cat);
+  return `<h2>${catLabel(state.cat)}</h2>
+    <button class="btn secondary" style="width:auto;margin-bottom:12px;padding:6px 12px;font-size:12px;" onclick="nav('home')">&larr; All categories</button>
+    ${renderProductGrid(items)}`;
+}
+function renderCart(){
+  const rows = Object.entries(state.cart).map(([id,qty])=>{
+    const p = state.products.find(p=>p.id===id); if(!p) return '';
+    return `<div class="cartrow"><div>${p.name}<div class="tiny">₹${p.price} x ${qty} = ₹${(p.price*qty).toFixed(0)}</div></div>
+      <div class="qty"><button onclick="changeQty('${id}',-1)">−</button>${qty}<button onclick="changeQty('${id}',1)">+</button></div></div>`;
+  }).join('');
+  const total = Object.entries(state.cart).reduce((s,[id,q])=>{const p=state.products.find(p=>p.id===id);return s+(p?p.price*q:0);},0);
+  return `<h2>Your Cart</h2><div class="card">${rows||'<p class="muted">Cart is empty.</p>'}
+    ${rows?`<div class="prow" style="margin-top:10px;font-weight:700;"><span>Total</span><span>₹${total.toFixed(0)}</span></div>`:''}</div>
+    ${rows?`<button class="btn" onclick="nav('checkout')">Proceed to Checkout</button>`:''}`;
+}
+
+function renderAuth(){
+  return `<h2>Login or Create Account</h2>
+  ${state.msg?`<div class="msg ${state.msg.type}">${state.msg.text}</div>`:''}
+  <div class="card"><h2 style="font-size:14px;">Login</h2>
+    <input id="li_e" placeholder="Email"><input id="li_p" type="password" placeholder="Password">
+    <button class="btn" onclick="doLogin()">Login</button></div>
+  <div class="card"><h2 style="font-size:14px;">Create Account</h2>
+    <input id="su_name" placeholder="Full name"><input id="su_e" placeholder="Email">
+    <input id="su_p" type="password" placeholder="Choose password (min 6 chars)">
+    <button class="btn secondary" onclick="doSignup()">Sign Up</button></div>`;
+}
+async function doSignup(){
+  const name=document.getElementById('su_name').value.trim();
+  const email=document.getElementById('su_e').value.trim();
+  const password=document.getElementById('su_p').value;
+  if(!name||!email||password.length<6){ state.msg={type:'err',text:'Fill all fields (password min 6 chars).'}; render(); return; }
+  const { data, error } = await supabase.auth.signUp({ email, password, options:{ data:{ full_name:name } } });
+  if(error){ state.msg={type:'err',text:error.message}; render(); return; }
+  state.session = data.session;
+  state.msg={type:'ok',text: data.session? 'Account created!' : 'Check your email to confirm your account.'};
+  nav('home');
+}
+async function doLogin(){
+  const email=document.getElementById('li_e').value.trim();
+  const password=document.getElementById('li_p').value;
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if(error){ state.msg={type:'err',text:error.message}; render(); return; }
+  state.session = data.session;
+  await checkAdmin();
+  nav('home');
+}
+async function logout(){ await supabase.auth.signOut(); state.session=null; state.isAdmin=false; nav('home'); }
+window.doSignup=doSignup; window.doLogin=doLogin; window.logout=logout;
+
+function renderAccount(){
+  const u = state.session.user;
+  return `<h2>My Account</h2><div class="card"><p><b>${u.user_metadata?.full_name||'Customer'}</b></p><p class="tiny">${u.email}</p></div>
+  <button class="btn secondary" onclick="logout()">Log out</button>`;
+}
+
+function renderCheckout(){
+  const total = Object.entries(state.cart).reduce((s,[id,q])=>{const p=state.products.find(p=>p.id===id);return s+(p?p.price*q:0);},0);
+  if(!state.session) return `<h2>Checkout</h2><p class="muted">Please log in first.</p><button class="btn" onclick="nav('auth')">Login / Sign Up</button>`;
+  return `<h2>Checkout</h2>${state.msg?`<div class="msg ${state.msg.type}">${state.msg.text}</div>`:''}
+  <div class="card"><label>Delivery Address</label><textarea id="co_addr" rows="3" placeholder="Full address with pincode"></textarea>
+    <label>Contact Phone</label><input id="co_phone" placeholder="10-digit phone number">
+    <div class="prow" style="font-weight:700;margin:10px 0;"><span>Order Total</span><span>₹${total.toFixed(0)}</span></div></div>
+  <div class="card"><h2 style="font-size:14px;">Payment</h2>
+    <p class="tiny">Wired to /api/create-payment-order — add your gateway keys in Vercel env vars to go live.</p>
+    <button class="btn" onclick="placeOrder(${total})">Pay ₹${total.toFixed(0)} Now</button></div>`;
+}
+async function placeOrder(total){
+  const addr=document.getElementById('co_addr').value.trim();
+  const phone=document.getElementById('co_phone').value.trim();
+  if(!addr||!phone){ state.msg={type:'err',text:'Please enter address and phone.'}; render(); return; }
+  const { data: order, error } = await supabase.from('orders')
+    .insert({ user_id: state.session.user.id, address:addr, phone, total, status:'pending' })
+    .select().single();
+  if(error){ state.msg={type:'err',text:error.message}; render(); return; }
+  const items = Object.entries(state.cart).map(([id,qty])=>{
+    const p = state.products.find(p=>p.id===id);
+    return { order_id:order.id, product_id:id, product_name:p.name, price:p.price, qty };
+  });
+  await supabase.from('order_items').insert(items);
+  // Optional: call your payment gateway here via /api/create-payment-order
+  state.cart={}; saveCart();
+  state.msg={type:'ok', text:'Order placed! We will contact you to confirm payment.'};
+  nav('home');
+}
+window.placeOrder = placeOrder;
+
+function renderAdmin(){
+  if(!state.session) return `<h2>Admin</h2><p class="muted">Log in with an admin account first.</p><button class="btn" onclick="nav('auth')">Login</button>`;
+  if(!state.isAdmin) return `<h2>Admin</h2><p class="muted">This account is not authorized as admin. Add your user id to the <code>admins</code> table in Supabase.</p>`;
+  return `<h2>Admin — Add Product</h2>${state.msg?`<div class="msg ${state.msg.type}">${state.msg.text}</div>`:''}
+  <div class="card">
+    <label>Product Name</label><input id="ap_name" placeholder="e.g. Girls School Uniform Set">
+    <label>Category</label><select id="ap_cat">${CATS.map(c=>`<option value="${c.id}">${c.label}</option>`).join('')}</select>
+    <label>Price (₹)</label><input id="ap_price" type="number" placeholder="799">
+    <label>Stock Quantity</label><input id="ap_stock" type="number" placeholder="50">
+    <label>Image URL (optional)</label><input id="ap_img" placeholder="https://...">
+    <label>Description (optional)</label><textarea id="ap_desc" rows="2"></textarea>
+    <button class="btn" onclick="addProduct()">Upload Product</button>
+  </div>
+  <h2>Existing Products (${state.products.length})</h2>
+  <div class="card">${state.products.length? state.products.map(p=>`
+    <div class="plist-admin"><span>${p.name} <span class="tiny">(${catLabel(p.category)}, ₹${p.price})</span></span>
+    <button style="background:none;border:none;color:var(--danger);cursor:pointer;" onclick="deleteProduct('${p.id}')">Delete</button></div>`).join('')
+    : '<p class="muted">No products yet.</p>'}</div>`;
+}
+async function addProduct(){
+  const name=document.getElementById('ap_name').value.trim();
+  const category=document.getElementById('ap_cat').value;
+  const price=parseFloat(document.getElementById('ap_price').value);
+  const stock=parseInt(document.getElementById('ap_stock').value)||0;
+  const image_url=document.getElementById('ap_img').value.trim();
+  const description=document.getElementById('ap_desc').value.trim();
+  if(!name||!price){ state.msg={type:'err',text:'Name and price are required.'}; render(); return; }
+  const { error } = await supabase.from('products').insert({ name, category, price, stock, image_url, description });
+  state.msg = error? {type:'err',text:error.message} : {type:'ok',text:'Product uploaded.'};
+  if(!error) await loadProducts();
+  render();
+}
+async function deleteProduct(id){
+  await supabase.from('products').delete().eq('id', id);
+  await loadProducts(); render();
+}
+window.addProduct=addProduct; window.deleteProduct=deleteProduct;
+
+function render(){
+  renderTopNav();
+  const app = document.getElementById('app');
+  let html='';
+  if(state.view==='home') html = renderHome();
+  else if(state.view==='category') html = renderCategory();
+  else if(state.view==='cart') html = renderCart();
+  else if(state.view==='auth') html = renderAuth();
+  else if(state.view==='account') html = state.session? renderAccount() : renderAuth();
+  else if(state.view==='checkout') html = renderCheckout();
+  else if(state.view==='admin') html = renderAdmin();
+  app.innerHTML = html;
+}
+window.addEventListener('supabase-ready', init);
+</script>
+</body>
+</html>
